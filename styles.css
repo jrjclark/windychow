@@ -397,14 +397,19 @@ h2 {
   display: grid;
   gap: 6px;
   min-width: 0;
+  width: 100%;
 }
 
 .last-pickup-label {
   color: var(--muted);
-  font-size: 0.68rem;
+  display: block;
+  font-size: clamp(0.48rem, 1.65vw, 0.68rem);
   font-weight: 900;
   letter-spacing: 0;
   line-height: 1;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   text-align: center;
   text-transform: uppercase;
 }
