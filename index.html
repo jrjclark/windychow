@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mahjong Odds Helper</title>
+    <link rel="stylesheet" href="./styles.css?v=20260612-04" />
+  </head>
+  <body>
+    <section id="setup-screen" class="setup-screen" aria-labelledby="setup-title">
+      <div class="setup-panel">
+        <div class="setup-header">
+          <h1 id="setup-title">Game setup</h1>
+        </div>
+
+        <form id="setup-form" class="setup-form">
+          <label class="field">
+            <span>Mahjong version</span>
+            <select id="setup-version">
+              <option value="australian-nz-western">Australian/NZ Western</option>
+              <option value="hong-kong-cantonese">Hong Kong / Cantonese</option>
+              <option value="singapore-malaysian">Singapore / Malaysian</option>
+              <option value="riichi">Riichi</option>
+              <option value="american">American Mah Jongg</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Language</span>
+            <select id="setup-language">
+              <option value="english">English</option>
+              <option value="cantonese">Cantonese</option>
+              <option value="mandarin">Mandarin</option>
+            </select>
+          </label>
+
+          <fieldset class="player-field">
+            <legend>Players</legend>
+            <div class="player-options">
+              <label>
+                <input type="radio" name="setup-players" value="4" checked />
+                <span>4 players</span>
+              </label>
+              <label>
+                <input type="radio" name="setup-players" value="3" />
+                <span>3 players</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <button class="primary-button" type="submit">Start</button>
+        </form>
+      </div>
+    </section>
+
+    <main id="app-shell" class="app-shell hidden">
+      <section class="hand-panel app-section" aria-labelledby="app-title">
+        <div class="topbar">
+          <div>
+            <h1 id="app-title">Current Hand</h1>
+          </div>
+          <div class="toolbar" aria-label="Hand controls">
+            <div class="settings seat-wind-setting topbar-seat-wind">
+              <label for="seat-wind">Seat wind</label>
+              <select id="seat-wind">
+                <option value="we">East</option>
+                <option value="ws">South</option>
+                <option value="ww">West</option>
+                <option value="wn">North</option>
+              </select>
+            </div>
+            <button id="setup-change-button" class="settings-button" type="button">Game settings</button>
+            <button id="undo-button" class="icon-button" type="button" title="Undo" aria-label="Undo">↶</button>
+            <button id="clear-button" class="icon-button danger" type="button" title="Clear" aria-label="Clear">×</button>
+          </div>
+        </div>
+
+        <div class="slots-area hand-section-body">
+          <div id="current-hand-grid" class="current-hand-grid" aria-label="Current hand tiles">
+            <div id="hand-slots" class="hand-slots" aria-label="Selected hand tiles"></div>
+            <div class="last-pickup-slot">
+              <div id="draw-slot" class="draw-slot" aria-label="Last pickup tile"></div>
+              <span id="draw-slot-label" class="last-pickup-label">Last pickup</span>
+            </div>
+          </div>
+          <strong id="hand-count" class="screen-reader-only">0 / 13</strong>
+          <strong id="draw-count" class="screen-reader-only">0 / 1</strong>
+        </div>
+      </section>
+
+      <section id="discard-section" class="discard-panel app-section" aria-labelledby="discard-title">
+        <div class="section-header">
+          <div class="discard-title-wrap">
+            <h2 id="discard-title">Discarded Tiles</h2>
+            <div class="last-discard-heading">
+              <span>Last discarded</span>
+              <div id="last-discard-slot" class="last-discard-slot" aria-label="Last discarded tile"></div>
+            </div>
+          </div>
+          <div class="section-actions">
+            <button
+              id="discard-toggle"
+              class="collapse-button"
+              type="button"
+              title="Minimise discard section"
+              aria-label="Minimise discard section"
+              aria-expanded="true"
+              aria-controls="discard-section-body"
+            >
+              -
+            </button>
+          </div>
+        </div>
+
+        <div id="discard-section-body" class="section-body collapsible-body">
+          <div class="discard-area">
+            <div id="discard-slots" class="discard-slots" aria-label="Discarded tiles"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pickup-section" class="pickup-panel app-section" aria-labelledby="pickup-title">
+        <div class="section-header pickup-header">
+          <div>
+            <h2 id="pickup-title">Tile Selector</h2>
+          </div>
+          <div class="section-actions pickup-header-actions">
+            <div class="turn-control-row header-turn-controls">
+              <div class="turn-toggle" aria-label="Whose turn">
+                <button id="turn-me" class="segmented" type="button">My Turn</button>
+                <button id="turn-other" class="segmented" type="button">Other Player</button>
+              </div>
+              <label class="auto-rotate-toggle" for="auto-rotate">
+                <span>Auto rotate</span>
+                <input id="auto-rotate" type="checkbox" checked />
+                <span class="auto-rotate-switch" aria-hidden="true"></span>
+              </label>
+            </div>
+            <button
+              id="pickup-toggle"
+              class="collapse-button"
+              type="button"
+              title="Minimise tiles to pick up"
+              aria-label="Minimise tiles to pick up"
+              aria-expanded="true"
+              aria-controls="pickup-section-body"
+            >
+              -
+            </button>
+          </div>
+        </div>
+
+        <div id="pickup-section-body" class="section-body collapsible-body pickup-section-body">
+          <div class="selector-controls" aria-label="Tile selector controls">
+            <div class="mode-row" aria-label="Tile mode">
+              <button id="mode-draw" class="segmented" type="button">Wall Pickup</button>
+              <button id="mode-table" class="segmented" type="button">Table Pickup</button>
+              <button id="mode-discard" class="segmented" type="button">Discard</button>
+            </div>
+            <div id="selector-last-discard" class="selector-last-discard" aria-label="Last discarded tile"></div>
+          </div>
+          <div id="tile-palette" class="tile-palette" aria-label="Tile palette"></div>
+        </div>
+      </section>
+
+      <section id="results-section" class="results-panel app-section" aria-labelledby="results-title">
+        <div class="results-header">
+          <div>
+            <h2 id="results-title">Best Hands</h2>
+          </div>
+          <div class="section-actions results-header-actions">
+            <div class="filters header-filters" aria-label="Result filters">
+              <button id="filter-best" class="segmented active" type="button">Best</button>
+              <button id="filter-all" class="segmented" type="button">All</button>
+              <span class="filter-divider" aria-hidden="true"></span>
+              <span id="point-filter-controls" class="point-filter-controls">
+                <button class="segmented point-filter" type="button" data-point-filter="500">500</button>
+                <button class="segmented point-filter" type="button" data-point-filter="1000">1000</button>
+                <button class="segmented point-filter" type="button" data-point-filter="2000">2000</button>
+              </span>
+            </div>
+            <button
+              id="results-toggle"
+              class="collapse-button"
+              type="button"
+              title="Minimise best hands"
+              aria-label="Minimise best hands"
+              aria-expanded="true"
+              aria-controls="results-section-body"
+            >
+              -
+            </button>
+          </div>
+        </div>
+
+        <div id="results-section-body" class="collapsible-body results-section-body">
+          <div id="results-list" class="results-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js?v=20260612-08"></script>
+  </body>
+</html>
