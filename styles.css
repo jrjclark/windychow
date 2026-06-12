@@ -223,13 +223,9 @@ button {
 .topbar h1,
 .section-header h2,
 .results-header h2 {
-  font-size: 1.35rem;
+  font-size: 1.12rem;
   line-height: 1.1;
   white-space: nowrap;
-}
-
-.topbar h1 {
-  font-size: 1.12rem;
 }
 
 .section-actions {
@@ -1338,30 +1334,65 @@ h2 {
   }
 
   .topbar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .topbar > div:first-child {
+    min-width: 0;
   }
 
   .topbar .toolbar {
-    width: 100%;
-    justify-content: flex-start;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .topbar .settings-button {
+    padding: 0 6px;
+    font-size: 0.64rem;
   }
 
   .pickup-header,
   .results-header {
-    align-items: flex-start;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pickup-header > div:first-child,
+  .results-header > div:first-child {
+    grid-column: 1;
+    min-width: 0;
   }
 
   .pickup-header-actions,
   .results-header-actions {
-    width: 100%;
-    justify-content: flex-end;
+    display: contents;
+  }
+
+  .header-turn-controls,
+  .header-filters {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    min-width: 0;
+  }
+
+  .pickup-header-actions .collapse-button,
+  .results-header-actions .collapse-button {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    width: 30px;
+    height: 30px;
+    font-size: 1rem;
   }
 
   .header-filters {
-    flex: 1 1 auto;
     justify-content: flex-end;
-    min-width: 0;
   }
 
   .selector-controls {
@@ -1457,8 +1488,75 @@ h2 {
   .header-turn-controls .segmented,
   .header-filters .segmented {
     min-width: 0;
+    min-height: 28px;
     padding: 0 5px;
-    font-size: 0.68rem;
+    font-size: 0.66rem;
   }
 
+  .header-turn-controls {
+    display: flex;
+    width: auto;
+    max-width: 100%;
+    gap: 4px;
+  }
+
+  .header-turn-controls .turn-toggle {
+    display: flex;
+    gap: 4px;
+  }
+
+  .header-turn-controls .auto-rotate-toggle {
+    min-height: 28px;
+    font-size: 0.58rem;
+  }
+
+  .header-turn-controls .auto-rotate-switch {
+    width: 22px;
+    height: 13px;
+  }
+
+  .header-turn-controls .auto-rotate-switch::after {
+    width: 9px;
+    height: 9px;
+  }
+
+  .header-turn-controls .auto-rotate-toggle input:checked + .auto-rotate-switch::after {
+    transform: translateX(9px);
+  }
+
+}
+
+@media (max-width: 460px) {
+  .pickup-header,
+  .results-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pickup-header > div:first-child,
+  .results-header > div:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .pickup-header-actions .collapse-button,
+  .results-header-actions .collapse-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .header-turn-controls,
+  .header-filters {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .header-filters {
+    justify-content: flex-end;
+  }
+
+  .header-turn-controls {
+    justify-content: flex-end;
+  }
 }

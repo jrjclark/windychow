@@ -47,7 +47,7 @@ const languageCopy = {
     suggestedDiscard: "Suggested discard",
     discardedTiles: "Discarded Tiles",
     lastDiscarded: "Last discarded",
-    tileSelector: "Tile Selector",
+    tileSelector: "Select Tiles",
     myTurn: "My Turn",
     otherPlayer: "Other Player",
     autoRotate: "Auto rotate",
@@ -987,7 +987,8 @@ const state = {
     right: [],
   },
   trackAllPlayers: true,
-  autoRotate: true,
+  autoRotate: false,
+  autoRotateUserSet: false,
   heldResults: null,
   drawSlotPurpose: "last-pickup",
   mode: "hand",
@@ -1695,6 +1696,7 @@ function pushHistory() {
     lockedPickedUpByPlayer: structuredCloneLockedPickedUp(),
     trackAllPlayers: state.trackAllPlayers,
     autoRotate: state.autoRotate,
+    autoRotateUserSet: state.autoRotateUserSet,
     heldResults: state.heldResults,
     drawSlotPurpose: state.drawSlotPurpose,
     mode: state.mode,
@@ -1715,7 +1717,8 @@ function restore(snapshot) {
   state.lockedDraw = snapshot.lockedDraw === true && !!state.draw;
   state.lockedPickedUpByPlayer = normalizeLockedPickedUpByPlayer(snapshot.lockedPickedUpByPlayer);
   state.trackAllPlayers = true;
-  state.autoRotate = snapshot.autoRotate !== false;
+  state.autoRotateUserSet = snapshot.autoRotateUserSet === true;
+  state.autoRotate = state.autoRotateUserSet && snapshot.autoRotate === true;
   state.heldResults = snapshot.heldResults || null;
   state.drawSlotPurpose = snapshot.drawSlotPurpose === "suggested-discard" ? "suggested-discard" : "last-pickup";
   state.mode = snapshot.mode;
@@ -5205,6 +5208,7 @@ function saveState() {
       lockedPickedUpByPlayer: state.lockedPickedUpByPlayer,
       trackAllPlayers: state.trackAllPlayers,
       autoRotate: state.autoRotate,
+      autoRotateUserSet: state.autoRotateUserSet,
       drawSlotPurpose: state.drawSlotPurpose,
       mode: state.mode,
       seatWind: state.seatWind,
@@ -5236,7 +5240,8 @@ function loadState() {
     state.pickedUpByPlayer = normalizeDiscardsByPlayer(saved.pickedUpByPlayer || {});
     state.lockedPickedUpByPlayer = normalizeLockedPickedUpByPlayer(saved.lockedPickedUpByPlayer);
     state.trackAllPlayers = true;
-    state.autoRotate = saved.autoRotate !== false;
+    state.autoRotateUserSet = saved.autoRotateUserSet === true;
+    state.autoRotate = state.autoRotateUserSet && saved.autoRotate === true;
     state.drawSlotPurpose = saved.drawSlotPurpose === "suggested-discard" ? "suggested-discard" : "last-pickup";
     state.activePlayer = currentPlayerOrder().includes(saved.activePlayer) ? saved.activePlayer : "me";
     state.mode = ["draw", "table", "discard"].includes(saved.mode) ? saved.mode : "hand";
@@ -5292,6 +5297,7 @@ dom.turnOther.addEventListener("click", () => {
 
 dom.autoRotate.addEventListener("change", () => {
   pushHistory();
+  state.autoRotateUserSet = true;
   state.autoRotate = dom.autoRotate.checked;
   normalizeModeForState();
   render();
