@@ -44,6 +44,7 @@ const languageCopy = {
     west: "West",
     north: "North",
     lastPickup: "Last pickup",
+    bestDiscard: "Best discard",
     suggestedDiscard: "Suggested discard",
     discardedTiles: "Discarded Tiles",
     lastDiscarded: "Last discarded",
@@ -55,6 +56,8 @@ const languageCopy = {
     tablePickup: "Table Pickup",
     discard: "Discard",
     bestHands: "Best Hands",
+    one: "One",
+    top: "Top",
     best: "Best",
     all: "All",
     discarded: "Discarded",
@@ -126,6 +129,7 @@ const languageCopy = {
     west: "西",
     north: "北",
     lastPickup: "最新摸牌",
+    bestDiscard: "最佳打出",
     suggestedDiscard: "建議打出",
     discardedTiles: "已打出的牌",
     lastDiscarded: "最後打出",
@@ -137,6 +141,8 @@ const languageCopy = {
     tablePickup: "檯面拾牌",
     discard: "打出",
     bestHands: "最佳牌型",
+    one: "一個",
+    top: "最佳",
     best: "最佳",
     all: "全部",
     discarded: "已打出",
@@ -208,6 +214,7 @@ const languageCopy = {
     west: "西",
     north: "北",
     lastPickup: "最新摸牌",
+    bestDiscard: "最佳打出",
     suggestedDiscard: "建议打出",
     discardedTiles: "已打出的牌",
     lastDiscarded: "最后打出",
@@ -219,6 +226,8 @@ const languageCopy = {
     tablePickup: "桌面拾牌",
     discard: "打出",
     bestHands: "最佳牌型",
+    one: "一个",
+    top: "最佳",
     best: "最佳",
     all: "全部",
     discarded: "已打出",
@@ -1037,6 +1046,8 @@ const dom = {
   seatWind: document.querySelector("#seat-wind"),
   discardRecommendation: document.querySelector("#discard-recommendation"),
   results: document.querySelector("#results-list"),
+  scoreFilters: document.querySelector(".score-filters"),
+  filterOne: document.querySelector("#filter-one"),
   filterBest: document.querySelector("#filter-best"),
   filterAll: document.querySelector("#filter-all"),
   pointFilterControls: document.querySelector("#point-filter-controls"),
@@ -1620,12 +1631,6 @@ function isLockedPickedUpTile(player, index) {
   return locks[index] !== false;
 }
 
-function hasLockedPickedUpTileType(player, id) {
-  return (state.pickedUpByPlayer[player] || []).some(
-    (pickedId, index) => pickedId === id && isLockedPickedUpTile(player, index),
-  );
-}
-
 function lockedSelectionCounts() {
   const counts = zeros();
   state.hand.forEach((id, index) => {
@@ -1956,7 +1961,7 @@ function pickupTileFromTable(id) {
 }
 
 function addOtherPlayerDiscard(id) {
-  if (state.activePlayer === "me" || hasLockedPickedUpTileType(state.activePlayer, id) || !canUseTile(id)) return;
+  if (state.activePlayer === "me" || !canUseTile(id)) return;
   pushHistory();
   resetDrawSlotPurpose();
   state.discardsByPlayer[state.activePlayer].push(id);
@@ -2099,7 +2104,8 @@ function renderLanguage() {
   setText("#mode-table", t("tablePickup"));
   setText("#mode-discard", t("discard"));
   setText("#results-title", t("bestHands"));
-  setText("#filter-best", t("best"));
+  setText("#filter-one", t("one"));
+  setText("#filter-best", t("top"));
   setText("#filter-all", t("all"));
 }
 
@@ -2107,7 +2113,7 @@ function renderSlots() {
   dom.handCount.textContent = `${state.hand.length} / ${HAND_SIZE}`;
   dom.drawCount.textContent = `${state.draw ? 1 : 0} / 1`;
   dom.drawSlotLabel.textContent = state.drawSlotPurpose === "suggested-discard" && state.draw
-    ? t("suggestedDiscard")
+    ? t("bestDiscard")
     : t("lastPickup");
 
   const slots = [];
@@ -2231,8 +2237,10 @@ function renderMode() {
   dom.setupScreen.classList.toggle("hidden", state.configured);
   dom.appShell.classList.toggle("hidden", !state.configured);
   dom.seatWind.value = state.seatWind;
+  dom.filterOne.classList.toggle("active", state.filter === "one");
   dom.filterBest.classList.toggle("active", state.filter === "best");
   dom.filterAll.classList.toggle("active", state.filter === "all");
+  dom.scoreFilters.classList.toggle("hidden", state.filter === "one" || state.ui.resultsCollapsed);
 }
 
 function renderPointFilters() {
@@ -2300,7 +2308,7 @@ function renderPalette() {
           } else if (state.activePlayer === "me" && state.mode === "discard") {
             disabled = !canDiscardOwnTile(id);
           } else if (state.activePlayer !== "me") {
-            disabled = state.mode !== "discard" || remaining <= 0 || hasLockedPickedUpTileType(state.activePlayer, id);
+            disabled = state.mode !== "discard" || remaining <= 0;
           } else if (state.mode === "hand") {
             disabled = state.hand.length >= HAND_SIZE || remaining <= 0;
           } else if (state.mode === "draw") {
@@ -4789,14 +4797,19 @@ function visibleResults(evaluated) {
   const exposureResults = hasOwnTablePickupExposure()
     ? evaluated.filter((item) => canShowWithExposedHand(item.pattern))
     : evaluated;
-  const baseResults = state.filter === "all"
-    ? exposureResults
-    : exposureResults.filter((item, index) => {
-        const blocked = item.distance.blocked && !item.complete && item.oneDraw.outs === 0;
-        return !blocked && (index < 18 || item.complete || item.oneDraw.outs > 0);
-      });
-  if (!state.pointFilters.length) return baseResults;
-  return baseResults.filter((item) =>
+  if (state.filter === "one") return exposureResults.slice(0, 1);
+  const scoreFilteredResults = !state.pointFilters.length ? exposureResults : exposureResults.filter((item) =>
+    winningPointValuesForPattern(item.pattern).some((value) =>
+      state.pointFilters.some((filter) => pointFilterMatchesValue(filter, value)),
+    ),
+  );
+  if (state.filter === "all") return scoreFilteredResults;
+  const topResults = exposureResults.filter((item, index) => {
+    const blocked = item.distance.blocked && !item.complete && item.oneDraw.outs === 0;
+    return !blocked && (index < 18 || item.complete || item.oneDraw.outs > 0);
+  });
+  if (!state.pointFilters.length) return topResults;
+  return topResults.filter((item) =>
     winningPointValuesForPattern(item.pattern).some((value) =>
       state.pointFilters.some((filter) => pointFilterMatchesValue(filter, value)),
     ),
@@ -5246,7 +5259,7 @@ function loadState() {
     state.activePlayer = currentPlayerOrder().includes(saved.activePlayer) ? saved.activePlayer : "me";
     state.mode = ["draw", "table", "discard"].includes(saved.mode) ? saved.mode : "hand";
     state.seatWind = windIds.includes(saved.seatWind) ? saved.seatWind : "we";
-    state.filter = saved.filter === "all" ? "all" : "best";
+    state.filter = ["one", "all", "best"].includes(saved.filter) ? saved.filter : "best";
     const pointOptions = pointFilterOptionsForVersion(state.game.version);
     state.pointFilters = Array.isArray(saved.pointFilters)
       ? saved.pointFilters.filter((value) => pointOptions.includes(value))
@@ -5428,6 +5441,11 @@ dom.results.addEventListener("keydown", (event) => {
   event.preventDefault();
   const result = displayedResultItems()[Number(card.dataset.resultIndex)];
   if (result) arrangeHandForResult(result);
+});
+
+dom.filterOne.addEventListener("click", () => {
+  state.filter = "one";
+  render();
 });
 
 dom.filterBest.addEventListener("click", () => {
