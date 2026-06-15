@@ -35,7 +35,10 @@ const languageCopy = {
     threePlayers: "3 players",
     start: "Start",
     currentHand: "Current Hand",
-    gameSettings: "Game settings",
+    gameSettings: "Settings",
+    expose: "Expose",
+    unexpose: "Unexpose",
+    kong: "Kong",
     undo: "Undo",
     clear: "Clear",
     seatWind: "Seat wind",
@@ -120,7 +123,10 @@ const languageCopy = {
     threePlayers: "3 位玩家",
     start: "開始",
     currentHand: "目前手牌",
-    gameSettings: "遊戲設定",
+    gameSettings: "設定",
+    expose: "明牌",
+    unexpose: "取消明牌",
+    kong: "槓",
     undo: "復原",
     clear: "清除",
     seatWind: "座風",
@@ -205,7 +211,10 @@ const languageCopy = {
     threePlayers: "3 位玩家",
     start: "开始",
     currentHand: "当前手牌",
-    gameSettings: "游戏设置",
+    gameSettings: "设置",
+    expose: "明牌",
+    unexpose: "取消明牌",
+    kong: "杠",
     undo: "撤销",
     clear: "清除",
     seatWind: "座风",
@@ -973,6 +982,7 @@ const state = {
   },
   hand: [],
   draw: null,
+  kongTiles: [],
   activePlayer: "me",
   lastDiscard: null,
   discardsByPlayer: {
@@ -998,6 +1008,9 @@ const state = {
   trackAllPlayers: true,
   autoRotate: false,
   autoRotateUserSet: false,
+  exposeMode: false,
+  kongMode: false,
+  kongReplacementPending: false,
   heldResults: null,
   drawSlotPurpose: "last-pickup",
   mode: "hand",
@@ -1019,10 +1032,14 @@ const dom = {
   setupVersion: document.querySelector("#setup-version"),
   setupLanguage: document.querySelector("#setup-language"),
   setupChange: document.querySelector("#setup-change-button"),
+  expose: document.querySelector("#expose-button"),
+  kong: document.querySelector("#kong-button"),
   handGrid: document.querySelector("#current-hand-grid"),
   handSlots: document.querySelector("#hand-slots"),
   drawSlot: document.querySelector("#draw-slot"),
   drawSlotLabel: document.querySelector("#draw-slot-label"),
+  kongRow: document.querySelector("#kong-row"),
+  kongSlots: document.querySelector("#kong-slots"),
   lastDiscardSlot: document.querySelector("#last-discard-slot"),
   discardSlots: document.querySelector("#discard-slots"),
   discardSection: document.querySelector("#discard-section"),
@@ -1325,7 +1342,10 @@ function canShowWithExposedHand(pattern) {
 }
 
 function hasOwnTablePickupExposure() {
-  return (state.pickedUpByPlayer.me || []).length > 0;
+  return (state.pickedUpByPlayer.me || []).length > 0
+    || state.kongTiles.length > 0
+    || state.lockedHandSlots.some(Boolean)
+    || state.lockedDraw === true;
 }
 
 const calculateExposureScoreIds = new Set(["ordinary", "all-honour-hand", "purity"]);
@@ -1569,6 +1589,7 @@ function hasAnyTablePickup(player = state.activePlayer) {
 }
 
 function modeForMyTurnTileCount() {
+  if (state.kongReplacementPending) return "draw";
   if (totalSelected() >= HAND_SIZE + 1) return "discard";
   if (state.hand.length >= HAND_SIZE) return "draw";
   return "hand";
@@ -1578,8 +1599,16 @@ function normalizeModeForState() {
   if (!currentPlayerOrder().includes(state.activePlayer)) state.activePlayer = "me";
 
   if (state.activePlayer !== "me") {
+    state.exposeMode = false;
+    state.kongMode = false;
+    state.kongReplacementPending = false;
     if (state.mode === "table" && hasAnyTablePickup()) return;
     state.mode = "discard";
+    return;
+  }
+
+  if (state.kongReplacementPending) {
+    state.mode = "draw";
     return;
   }
 
@@ -1651,6 +1680,7 @@ function discardableSelectionCounts() {
 
 function knownCounts() {
   const counts = selectionCounts();
+  for (const id of state.kongTiles) counts[idToIndex(id)] += 1;
   for (const id of allDiscards()) counts[idToIndex(id)] += 1;
   for (const id of allPickedUpTiles()) counts[idToIndex(id)] += 1;
   return counts;
@@ -1665,13 +1695,14 @@ function totalSelected() {
 }
 
 function totalKnown() {
-  return totalSelected() + allDiscards().length + allPickedUpTiles().length;
+  return totalSelected() + state.kongTiles.length + allDiscards().length + allPickedUpTiles().length;
 }
 
 function countSelectedById() {
   const counts = new Map();
   for (const id of state.hand) counts.set(id, (counts.get(id) || 0) + 1);
   if (state.draw) counts.set(state.draw, (counts.get(state.draw) || 0) + 1);
+  for (const id of state.kongTiles) counts.set(id, (counts.get(id) || 0) + 1);
   for (const id of allDiscards()) counts.set(id, (counts.get(id) || 0) + 1);
   for (const id of allPickedUpTiles()) counts.set(id, (counts.get(id) || 0) + 1);
   return counts;
@@ -1692,6 +1723,7 @@ function pushHistory() {
   state.history.push({
     hand: [...state.hand],
     draw: state.draw,
+    kongTiles: [...state.kongTiles],
     activePlayer: state.activePlayer,
     lastDiscard: state.lastDiscard,
     discardsByPlayer: structuredCloneDiscards(),
@@ -1702,6 +1734,9 @@ function pushHistory() {
     trackAllPlayers: state.trackAllPlayers,
     autoRotate: state.autoRotate,
     autoRotateUserSet: state.autoRotateUserSet,
+    exposeMode: state.exposeMode,
+    kongMode: state.kongMode,
+    kongReplacementPending: state.kongReplacementPending,
     heldResults: state.heldResults,
     drawSlotPurpose: state.drawSlotPurpose,
     mode: state.mode,
@@ -1714,6 +1749,7 @@ function pushHistory() {
 function restore(snapshot) {
   state.hand = [...snapshot.hand];
   state.draw = snapshot.draw;
+  state.kongTiles = Array.isArray(snapshot.kongTiles) ? snapshot.kongTiles.filter((id) => tileById.has(id)) : [];
   state.activePlayer = currentPlayerOrder().includes(snapshot.activePlayer) ? snapshot.activePlayer : "me";
   state.lastDiscard = tileById.has(snapshot.lastDiscard) ? snapshot.lastDiscard : null;
   state.discardsByPlayer = normalizeDiscardsByPlayer(snapshot.discardsByPlayer || { me: snapshot.discards || [] });
@@ -1724,6 +1760,9 @@ function restore(snapshot) {
   state.trackAllPlayers = true;
   state.autoRotateUserSet = snapshot.autoRotateUserSet === true;
   state.autoRotate = state.autoRotateUserSet && snapshot.autoRotate === true;
+  state.exposeMode = snapshot.exposeMode === true;
+  state.kongMode = snapshot.kongMode === true;
+  state.kongReplacementPending = snapshot.kongReplacementPending === true;
   state.heldResults = snapshot.heldResults || null;
   state.drawSlotPurpose = snapshot.drawSlotPurpose === "suggested-discard" ? "suggested-discard" : "last-pickup";
   state.mode = snapshot.mode;
@@ -1813,6 +1852,9 @@ function sanitizeTilesForVersion(version = state.game.version) {
     state.lockedDraw = false;
   }
 
+  state.kongTiles = (state.kongTiles || []).filter(keepTile);
+  if (!state.kongTiles.length) state.kongReplacementPending = false;
+
   for (const player of Object.keys(state.discardsByPlayer)) {
     state.discardsByPlayer[player] = (state.discardsByPlayer[player] || []).filter(keepTile);
   }
@@ -1833,7 +1875,7 @@ function sanitizeTilesForVersion(version = state.game.version) {
   if (state.mode === "discard" && state.activePlayer === "me" && !state.draw) {
     state.mode = state.hand.length >= HAND_SIZE ? "draw" : "hand";
   }
-  if (state.mode === "draw" && state.hand.length < HAND_SIZE) state.mode = "hand";
+  if (state.mode === "draw" && state.hand.length < HAND_SIZE && !state.kongReplacementPending) state.mode = "hand";
 }
 
 function addTile(id) {
@@ -1850,6 +1892,7 @@ function addTile(id) {
       resetDrawSlotPurpose();
       state.hand.push(id);
       state.lockedHandSlots.push(false);
+      if (state.kongReplacementPending) state.kongReplacementPending = false;
       normalizeModeForState();
       render();
     }
@@ -1863,10 +1906,44 @@ function addTile(id) {
     resetDrawSlotPurpose();
     state.draw = id;
     state.lockedDraw = false;
+    if (state.kongReplacementPending) state.kongReplacementPending = false;
     normalizeModeForState();
     render();
     return;
   }
+}
+
+function finishKongDeclaration(id) {
+  state.kongTiles.push(id);
+  state.activePlayer = "me";
+  state.exposeMode = false;
+  state.kongMode = false;
+  state.kongReplacementPending = true;
+  state.mode = "draw";
+}
+
+function declareKongHandTile(index) {
+  const id = state.hand[index];
+  if (state.activePlayer !== "me" || !id) return;
+  pushHistory();
+  state.heldResults = null;
+  resetDrawSlotPurpose();
+  state.hand.splice(index, 1);
+  state.lockedHandSlots.splice(index, 1);
+  finishKongDeclaration(id);
+  render();
+}
+
+function declareKongDrawTile() {
+  if (state.activePlayer !== "me" || !state.draw) return;
+  pushHistory();
+  state.heldResults = null;
+  resetDrawSlotPurpose();
+  const id = state.draw;
+  state.draw = null;
+  state.lockedDraw = false;
+  finishKongDeclaration(id);
+  render();
 }
 
 function removeHandTile(index) {
@@ -1931,6 +2008,192 @@ function canDiscardOwnTile(id) {
     || state.hand.some((handId, index) => handId === id && !state.lockedHandSlots[index]);
 }
 
+function setUnitLocked(unit, locked = true) {
+  if (unit.origin === "draw") {
+    state.lockedDraw = locked && !!state.draw;
+    return;
+  }
+  if (unit.origin === "hand" && unit.originIndex >= 0 && unit.originIndex < state.lockedHandSlots.length) {
+    state.lockedHandSlots[unit.originIndex] = locked;
+  }
+}
+
+function toggleHandExposure(index) {
+  if (state.activePlayer !== "me" || !state.hand[index]) return;
+  pushHistory();
+  state.heldResults = null;
+  resetDrawSlotPurpose();
+  state.lockedHandSlots[index] = state.lockedHandSlots[index] !== true;
+  render();
+}
+
+function toggleDrawExposure() {
+  if (state.activePlayer !== "me" || !state.draw) return;
+  pushHistory();
+  state.heldResults = null;
+  resetDrawSlotPurpose();
+  state.lockedDraw = state.lockedDraw !== true;
+  render();
+}
+
+function claimedUnitFromRef(claimedRef) {
+  if (claimedRef?.origin === "draw" && state.draw) {
+    return {
+      id: state.draw,
+      locked: state.lockedDraw === true,
+      origin: "draw",
+      originIndex: HAND_SIZE,
+      claimed: true,
+    };
+  }
+  if (claimedRef?.origin === "hand" && state.hand[claimedRef.index]) {
+    return {
+      id: state.hand[claimedRef.index],
+      locked: state.lockedHandSlots[claimedRef.index] === true,
+      origin: "hand",
+      originIndex: claimedRef.index,
+      claimed: true,
+    };
+  }
+  return null;
+}
+
+function unitsWithClaimed(claimedRef) {
+  const claimed = claimedUnitFromRef(claimedRef);
+  return selectedTileUnits().map((unit) => ({
+    ...unit,
+    claimed: Boolean(claimed && unit.origin === claimed.origin && unit.originIndex === claimed.originIndex),
+  }));
+}
+
+function pickUnitsForIds(units, ids, claimedUnit) {
+  const chosen = [];
+  const used = new Set();
+  const unitKey = (unit) => `${unit.origin}:${unit.originIndex}`;
+
+  if (claimedUnit) {
+    chosen.push(claimedUnit);
+    used.add(unitKey(claimedUnit));
+  }
+
+  const needed = new Map();
+  for (const id of ids) needed.set(id, (needed.get(id) || 0) + 1);
+  if (claimedUnit) needed.set(claimedUnit.id, (needed.get(claimedUnit.id) || 0) - 1);
+
+  for (const [id, count] of needed) {
+    for (let i = 0; i < count; i += 1) {
+      const unit = units.find((candidate) => candidate.id === id && !used.has(unitKey(candidate)));
+      if (!unit) return null;
+      chosen.push(unit);
+      used.add(unitKey(unit));
+    }
+  }
+
+  return chosen;
+}
+
+function sameKindExposeCandidates(units, claimedUnit, size, allowJokers) {
+  const candidates = [];
+  const claimedIsJoker = claimedUnit.id === jokerId;
+  const baseIds = claimedIsJoker
+    ? Array.from(new Set(units.map((unit) => unit.id))).filter((id) => id !== jokerId)
+    : [claimedUnit.id];
+
+  for (const baseId of baseIds) {
+    const baseTile = tileById.get(baseId);
+    if (!baseTile || baseTile.type === "joker") continue;
+    const naturalUnits = units.filter((unit) => unit.id === baseId);
+    const jokerUnits = allowJokers ? units.filter((unit) => unit.id === jokerId) : [];
+    if (naturalUnits.length + jokerUnits.length < size) continue;
+    if (allowJokers && naturalUnits.length < 1) continue;
+    if (!allowJokers && naturalUnits.length < size) continue;
+
+    const chosen = [];
+    const used = new Set();
+    const key = (unit) => `${unit.origin}:${unit.originIndex}`;
+    chosen.push(claimedUnit);
+    used.add(key(claimedUnit));
+
+    const addMatching = (pool, needed) => {
+      for (const unit of pool) {
+        if (chosen.length >= size || needed <= 0) break;
+        if (used.has(key(unit))) continue;
+        chosen.push(unit);
+        used.add(key(unit));
+        needed -= 1;
+      }
+      return needed;
+    };
+
+    let neededNatural = claimedIsJoker ? Math.min(naturalUnits.length, size - 1) : Math.min(naturalUnits.length - 1, size - 1);
+    if (claimedIsJoker) {
+      neededNatural = Math.min(naturalUnits.length, size - 1);
+    }
+    addMatching(naturalUnits, neededNatural);
+    if (allowJokers) addMatching(jokerUnits, size - chosen.length);
+
+    if (chosen.length === size) {
+      candidates.push({
+        kind: size === 5 ? "quint" : size === 4 ? "kong" : "pung",
+        priority: size === 5 ? 50 : size === 4 ? 40 : 30,
+        units: chosen,
+        naturalCount: chosen.filter((unit) => unit.id === baseId).length,
+      });
+    }
+  }
+
+  return candidates;
+}
+
+function chowExposeCandidates(units, claimedUnit) {
+  if (state.game.version === "american") return [];
+  const tile = tileById.get(claimedUnit.id);
+  if (tile?.type !== "suit") return [];
+
+  const candidates = [];
+  const firstStart = Math.max(1, tile.rank - 2);
+  const lastStart = Math.min(tile.rank, 7);
+  for (let start = firstStart; start <= lastStart; start += 1) {
+    const ids = [`${tile.suit}${start}`, `${tile.suit}${start + 1}`, `${tile.suit}${start + 2}`];
+    const chosen = pickUnitsForIds(units, ids, claimedUnit);
+    if (chosen) {
+      candidates.push({
+        kind: "chow",
+        priority: 20,
+        units: chosen,
+        naturalCount: 3,
+      });
+    }
+  }
+  return candidates;
+}
+
+function bestExposeCandidateForClaim(claimedRef) {
+  const units = unitsWithClaimed(claimedRef);
+  const claimedUnit = units.find((unit) => unit.claimed);
+  if (!claimedUnit) return null;
+
+  const allowJokers = state.game.version === "american";
+  const sizes = allowJokers ? [5, 4, 3] : [4, 3];
+  const candidates = [
+    ...sizes.flatMap((size) => sameKindExposeCandidates(units, claimedUnit, size, allowJokers)),
+    ...chowExposeCandidates(units, claimedUnit),
+  ];
+
+  return candidates.sort((a, b) =>
+    b.priority - a.priority ||
+    b.units.filter((unit) => unit.locked).length - a.units.filter((unit) => unit.locked).length ||
+    b.naturalCount - a.naturalCount ||
+    a.units.map((unit) => idToIndex(unit.id)).join("-").localeCompare(b.units.map((unit) => idToIndex(unit.id)).join("-")),
+  )[0] || null;
+}
+
+function autoExposeClaimedTile(claimedRef) {
+  const candidate = bestExposeCandidateForClaim(claimedRef);
+  if (!candidate) return;
+  for (const unit of candidate.units) setUnitLocked(unit, true);
+}
+
 function pickupTileFromTable(id) {
   const source = findTableDiscardSource(id);
   if (!source && !canPickupTableTile(id)) return;
@@ -1943,13 +2206,17 @@ function pickupTileFromTable(id) {
   if (state.activePlayer === "me") {
     state.pickedUpByPlayer.me.push(id);
     state.lockedPickedUpByPlayer.me.push(true);
+    let claimedRef = null;
     if (state.hand.length < HAND_SIZE) {
       state.hand.push(id);
       state.lockedHandSlots.push(true);
+      claimedRef = { origin: "hand", index: state.hand.length - 1 };
     } else {
       state.draw = id;
       state.lockedDraw = true;
+      claimedRef = { origin: "draw" };
     }
+    autoExposeClaimedTile(claimedRef);
   } else {
     state.pickedUpByPlayer[state.activePlayer].push(id);
     state.lockedPickedUpByPlayer[state.activePlayer].push(true);
@@ -1983,13 +2250,17 @@ function claimDiscardTile(sourcePlayer, index) {
   if (state.activePlayer === "me") {
     state.pickedUpByPlayer.me.push(id);
     state.lockedPickedUpByPlayer.me.push(true);
+    let claimedRef = null;
     if (state.hand.length < HAND_SIZE) {
       state.hand.push(id);
       state.lockedHandSlots.push(true);
+      claimedRef = { origin: "hand", index: state.hand.length - 1 };
     } else {
       state.draw = id;
       state.lockedDraw = true;
+      claimedRef = { origin: "draw" };
     }
+    autoExposeClaimedTile(claimedRef);
     state.mode = "discard";
   } else {
     state.pickedUpByPlayer[state.activePlayer].push(id);
@@ -2087,6 +2358,8 @@ function renderLanguage() {
   setText("#app-title", t("currentHand"));
   setText(".topbar-seat-wind label", t("seatWind"));
   setText("#setup-change-button", t("gameSettings"));
+  setText("#expose-button", t("expose"));
+  setText("#kong-button", t("kong"));
   dom.undo.title = t("undo");
   dom.undo.setAttribute("aria-label", t("undo"));
   dom.clear.title = t("clear");
@@ -2121,8 +2394,10 @@ function renderSlots() {
     const id = state.hand[i];
     if (id) {
       const locked = state.lockedHandSlots[i] === true;
-      const lockedDiscard = state.mode === "discard" && locked;
-      const action = lockedDiscard ? t("cannotDiscardClaimed") : state.mode === "discard" ? t("discard") : t("remove");
+      const kongSelectable = state.kongMode && state.activePlayer === "me";
+      const exposeSelectable = state.exposeMode && state.activePlayer === "me";
+      const lockedDiscard = !kongSelectable && !exposeSelectable && state.mode === "discard" && locked;
+      const action = kongSelectable ? t("kong") : exposeSelectable ? (locked ? t("unexpose") : t("expose")) : lockedDiscard ? t("cannotDiscardClaimed") : state.mode === "discard" ? t("discard") : t("remove");
       slots.push(`
         <button class="slot filled ${locked ? "locked-pickup" : ""}" type="button" title="${action} ${tileById.get(id).name}" aria-label="${action} ${tileById.get(id).name}" data-remove-hand="${i}" ${lockedDiscard ? "disabled" : ""}>
           ${tileHTML(id)}
@@ -2135,8 +2410,10 @@ function renderSlots() {
   dom.handSlots.innerHTML = slots.join("");
 
   if (state.draw) {
-    const lockedDiscard = state.mode === "discard" && state.lockedDraw;
-    const action = lockedDiscard ? t("cannotDiscardClaimed") : state.mode === "discard" ? t("discard") : t("remove");
+    const kongSelectable = state.kongMode && state.activePlayer === "me";
+    const exposeSelectable = state.exposeMode && state.activePlayer === "me";
+    const lockedDiscard = !kongSelectable && !exposeSelectable && state.mode === "discard" && state.lockedDraw;
+    const action = kongSelectable ? t("kong") : exposeSelectable ? (state.lockedDraw ? t("unexpose") : t("expose")) : lockedDiscard ? t("cannotDiscardClaimed") : state.mode === "discard" ? t("discard") : t("remove");
     dom.drawSlot.innerHTML = `
       <button class="slot filled ${state.lockedDraw ? "locked-pickup" : ""}" type="button" title="${action} ${tileById.get(state.draw).name}" aria-label="${action} ${tileById.get(state.draw).name}" data-remove-draw="true" ${lockedDiscard ? "disabled" : ""}>
         ${tileHTML(state.draw)}
@@ -2145,6 +2422,15 @@ function renderSlots() {
   } else {
     dom.drawSlot.innerHTML = `<div class="slot empty" aria-hidden="true"></div>`;
   }
+
+  dom.kongRow.classList.toggle("hidden", state.kongTiles.length === 0);
+  dom.kongSlots.innerHTML = state.kongTiles
+    .map((id) => `
+      <div class="slot filled locked-pickup kong-tile" title="${t("kong")} ${tileById.get(id).name}">
+        ${tileHTML(id)}
+      </div>
+    `)
+    .join("");
 
   const discardedTiles = rowTilesForCollection(state.discardsByPlayer);
   const pickedUpTiles = rowTilesForCollection(state.pickedUpByPlayer);
@@ -2218,13 +2504,21 @@ function renderMode() {
   dom.modeTable.setAttribute("aria-pressed", String(state.mode === "table"));
   dom.modeDiscard.setAttribute("aria-pressed", String(state.mode === "discard"));
   const otherPlayerActive = state.activePlayer !== "me";
+  if (otherPlayerActive) state.exposeMode = false;
+  if (otherPlayerActive) state.kongMode = false;
   const total = totalSelected();
   dom.turnMe.classList.toggle("active", !otherPlayerActive);
   dom.turnOther.classList.toggle("active", otherPlayerActive);
   dom.turnMe.setAttribute("aria-pressed", String(!otherPlayerActive));
   dom.turnOther.setAttribute("aria-pressed", String(otherPlayerActive));
   dom.autoRotate.checked = state.autoRotate;
-  dom.modeDraw.disabled = otherPlayerActive || state.hand.length < HAND_SIZE || total >= HAND_SIZE + 1;
+  dom.expose.classList.toggle("active", state.exposeMode);
+  dom.expose.disabled = otherPlayerActive;
+  dom.expose.setAttribute("aria-pressed", String(state.exposeMode));
+  dom.kong.classList.toggle("active", state.kongMode);
+  dom.kong.disabled = otherPlayerActive || totalSelected() === 0;
+  dom.kong.setAttribute("aria-pressed", String(state.kongMode));
+  dom.modeDraw.disabled = otherPlayerActive || (!state.kongReplacementPending && state.hand.length < HAND_SIZE) || total >= HAND_SIZE + 1;
   dom.modeTable.disabled = !hasAnyTablePickup();
   dom.modeDiscard.disabled = !otherPlayerActive && total < HAND_SIZE + 1;
   dom.handGrid.classList.toggle("locked-zone", otherPlayerActive);
@@ -2312,7 +2606,7 @@ function renderPalette() {
           } else if (state.mode === "hand") {
             disabled = state.hand.length >= HAND_SIZE || remaining <= 0;
           } else if (state.mode === "draw") {
-            disabled = state.hand.length < HAND_SIZE || totalSelected() >= HAND_SIZE + 1 || remaining <= 0;
+            disabled = (!state.kongReplacementPending && state.hand.length < HAND_SIZE) || totalSelected() >= HAND_SIZE + 1 || remaining <= 0;
           }
           return `
             <button class="tile-button" type="button" data-tile="${id}" title="${tileById.get(id).name}" ${disabled ? "disabled" : ""}>
@@ -5212,6 +5506,7 @@ function saveState() {
       game: state.game,
       hand: state.hand,
       draw: state.draw,
+      kongTiles: state.kongTiles,
       lockedHandSlots: state.lockedHandSlots,
       lockedDraw: state.lockedDraw,
       activePlayer: state.activePlayer,
@@ -5222,6 +5517,9 @@ function saveState() {
       trackAllPlayers: state.trackAllPlayers,
       autoRotate: state.autoRotate,
       autoRotateUserSet: state.autoRotateUserSet,
+      exposeMode: state.exposeMode,
+      kongMode: state.kongMode,
+      kongReplacementPending: state.kongReplacementPending,
       drawSlotPurpose: state.drawSlotPurpose,
       mode: state.mode,
       seatWind: state.seatWind,
@@ -5246,6 +5544,7 @@ function loadState() {
     }
     state.hand = Array.isArray(saved.hand) ? saved.hand.filter((id) => tileById.has(id)).slice(0, HAND_SIZE) : [];
     state.draw = tileById.has(saved.draw) ? saved.draw : null;
+    state.kongTiles = Array.isArray(saved.kongTiles) ? saved.kongTiles.filter((id) => tileById.has(id)) : [];
     state.lockedHandSlots = normalizeLockList(saved.lockedHandSlots, state.hand.length, false);
     state.lockedDraw = saved.lockedDraw === true && !!state.draw;
     state.lastDiscard = tileById.has(saved.lastDiscard) ? saved.lastDiscard : null;
@@ -5255,6 +5554,9 @@ function loadState() {
     state.trackAllPlayers = true;
     state.autoRotateUserSet = saved.autoRotateUserSet === true;
     state.autoRotate = state.autoRotateUserSet && saved.autoRotate === true;
+    state.exposeMode = saved.exposeMode === true;
+    state.kongMode = saved.kongMode === true;
+    state.kongReplacementPending = saved.kongReplacementPending === true;
     state.drawSlotPurpose = saved.drawSlotPurpose === "suggested-discard" ? "suggested-discard" : "last-pickup";
     state.activePlayer = currentPlayerOrder().includes(saved.activePlayer) ? saved.activePlayer : "me";
     state.mode = ["draw", "table", "discard"].includes(saved.mode) ? saved.mode : "hand";
@@ -5351,11 +5653,29 @@ dom.setupChange.addEventListener("click", () => {
   render();
 });
 
+dom.expose.addEventListener("click", () => {
+  if (state.activePlayer !== "me") return;
+  state.exposeMode = !state.exposeMode;
+  if (state.exposeMode) state.kongMode = false;
+  render();
+});
+
+dom.kong.addEventListener("click", () => {
+  if (state.activePlayer !== "me") return;
+  state.kongMode = !state.kongMode;
+  if (state.kongMode) state.exposeMode = false;
+  render();
+});
+
 dom.handSlots.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-hand]");
   if (!button) return;
   const index = Number(button.dataset.removeHand);
-  if (state.mode === "discard") {
+  if (state.kongMode && state.activePlayer === "me") {
+    declareKongHandTile(index);
+  } else if (state.exposeMode && state.activePlayer === "me") {
+    toggleHandExposure(index);
+  } else if (state.mode === "discard") {
     discardHandTile(index);
   } else {
     removeHandTile(index);
@@ -5365,7 +5685,11 @@ dom.handSlots.addEventListener("click", (event) => {
 dom.drawSlot.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-draw]");
   if (!button) return;
-  if (state.mode === "discard") {
+  if (state.kongMode && state.activePlayer === "me") {
+    declareKongDrawTile();
+  } else if (state.exposeMode && state.activePlayer === "me") {
+    toggleDrawExposure();
+  } else if (state.mode === "discard") {
     discardDrawTile();
   } else {
     removeDrawTile();
@@ -5488,6 +5812,7 @@ dom.clear.addEventListener("click", () => {
   if (
     !state.hand.length &&
     !state.draw &&
+    !state.kongTiles.length &&
     !allDiscards().length &&
     !displayedPickedUpTiles().length &&
     !state.lastDiscard
@@ -5497,6 +5822,7 @@ dom.clear.addEventListener("click", () => {
   pushHistory();
   state.hand = [];
   state.draw = null;
+  state.kongTiles = [];
   state.lockedHandSlots = [];
   state.lockedDraw = false;
   state.discardsByPlayer = { me: [], left: [], opposite: [], right: [] };
@@ -5504,6 +5830,9 @@ dom.clear.addEventListener("click", () => {
   state.lockedPickedUpByPlayer = { me: [], left: [], opposite: [], right: [] };
   state.lastDiscard = null;
   state.activePlayer = "me";
+  state.exposeMode = false;
+  state.kongMode = false;
+  state.kongReplacementPending = false;
   state.heldResults = null;
   resetDrawSlotPurpose();
   state.mode = "hand";

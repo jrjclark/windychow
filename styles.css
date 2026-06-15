@@ -154,7 +154,21 @@ button {
 .topbar .settings-button {
   min-height: 30px;
   padding: 0 7px;
+  border-color: #cfc5b5;
+  background: #fffdf8;
+  color: var(--muted);
   font-size: 0.68rem;
+}
+
+.topbar .settings-button.active {
+  border-color: var(--charcoal);
+  background: var(--charcoal);
+  color: #fff;
+}
+
+.topbar .settings-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .app-shell {
@@ -325,6 +339,15 @@ h2 {
   justify-content: flex-end;
 }
 
+.toolbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 22px;
+  flex: 0 0 auto;
+  margin: 0 2px;
+  background: #d3c7b8;
+}
+
 .icon-button {
   display: inline-grid;
   place-items: center;
@@ -417,6 +440,36 @@ h2 {
 .draw-slot {
   width: 100%;
   min-width: 0;
+}
+
+.kong-row {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 8px;
+  align-items: start;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #d3c7b8;
+}
+
+.kong-row-label {
+  padding-top: 9px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.kong-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kong-slots .slot {
+  width: clamp(34px, 8vw, 46px);
+  height: auto;
 }
 
 .seat-wind-setting select {

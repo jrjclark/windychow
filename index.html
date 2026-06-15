@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Mahjong Odds Helper</title>
-    <link rel="stylesheet" href="./styles.css?v=20260613-09" />
+    <link rel="stylesheet" href="./styles.css?v=20260615-04" />
   </head>
   <body>
     <section id="setup-screen" class="setup-screen" aria-labelledby="setup-title">
@@ -69,7 +69,10 @@
                 <option value="wn">North</option>
               </select>
             </div>
-            <button id="setup-change-button" class="settings-button" type="button">Game settings</button>
+            <button id="expose-button" class="settings-button expose-button" type="button" aria-pressed="false">Expose</button>
+            <button id="kong-button" class="settings-button kong-button" type="button" aria-pressed="false">Kong</button>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <button id="setup-change-button" class="settings-button" type="button">Settings</button>
             <button id="undo-button" class="icon-button" type="button" title="Undo" aria-label="Undo">↶</button>
             <button id="clear-button" class="icon-button danger" type="button" title="Clear" aria-label="Clear">×</button>
           </div>
@@ -82,6 +85,10 @@
               <div id="draw-slot" class="draw-slot" aria-label="Last pickup tile"></div>
               <span id="draw-slot-label" class="last-pickup-label">Last pickup</span>
             </div>
+          </div>
+          <div id="kong-row" class="kong-row hidden" aria-label="Kong tiles">
+            <div class="kong-row-label">KONG</div>
+            <div id="kong-slots" class="kong-slots"></div>
           </div>
           <strong id="hand-count" class="screen-reader-only">0 / 13</strong>
           <strong id="draw-count" class="screen-reader-only">0 / 1</strong>
@@ -203,6 +210,6 @@
       </section>
     </main>
 
-    <script type="module" src="./app.js?v=20260613-04"></script>
+    <script type="module" src="./app.js?v=20260615-04"></script>
   </body>
 </html>
