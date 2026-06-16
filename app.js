@@ -1598,6 +1598,11 @@ function modeForMyTurnTileCount() {
 function normalizeModeForState() {
   if (!currentPlayerOrder().includes(state.activePlayer)) state.activePlayer = "me";
 
+  if (state.game.version === "american") {
+    state.kongMode = false;
+    state.kongReplacementPending = false;
+  }
+
   if (state.activePlayer !== "me") {
     state.exposeMode = false;
     state.kongMode = false;
@@ -2515,8 +2520,11 @@ function renderMode() {
   dom.expose.classList.toggle("active", state.exposeMode);
   dom.expose.disabled = otherPlayerActive;
   dom.expose.setAttribute("aria-pressed", String(state.exposeMode));
+  const kongUnavailable = state.game.version === "american";
+  if (kongUnavailable) state.kongMode = false;
+  dom.kong.classList.toggle("hidden", kongUnavailable);
   dom.kong.classList.toggle("active", state.kongMode);
-  dom.kong.disabled = otherPlayerActive || totalSelected() === 0;
+  dom.kong.disabled = kongUnavailable || otherPlayerActive || totalSelected() === 0;
   dom.kong.setAttribute("aria-pressed", String(state.kongMode));
   dom.modeDraw.disabled = otherPlayerActive || (!state.kongReplacementPending && state.hand.length < HAND_SIZE) || total >= HAND_SIZE + 1;
   dom.modeTable.disabled = !hasAnyTablePickup();
@@ -4721,6 +4729,77 @@ function windyRankTargets(rank) {
 }
 
 const americanDragonForSuit = { b: "dg", c: "dr", d: "dw" };
+const americanPivotPairs = [
+  ["Quints-2", "Consecutive Run-7", 12],
+  ["2026-1", "Quints-3", 11],
+  ["2468-7", "Any Like Number-1", 11],
+  ["2468-4", "Quints-3", 11],
+  ["2468-6", "Any Like Numbers-2", 11],
+  ["Any Like Numbers-2", "Quints-1", 11],
+  ["Consecutive Run-5", "13579-5", 11],
+  ["2026-1", "2026-3", 10],
+  ["2026-1", "2026-4", 10],
+  ["2026-1", "2026-2", 10],
+  ["2026-2", "2468-4", 10],
+  ["2026-3", "Consecutive Run-2", 10],
+  ["2468-1", "2468-3", 10],
+  ["2468-1", "2468-5", 10],
+  ["2468-7", "Consecutive Run-6", 10],
+  ["Any Like Numbers-2", "Any Like Numbers-3", 10],
+  ["Any Like Numbers-2", "13579-4", 10],
+  ["Any Like Numbers-1", "369-5", 10],
+  ["Any Like Numbers-1", "Consecutive Run-6", 10],
+  ["Any Like Numbers-4", "Quints-1", 10],
+  ["Quints-2", "Quints-3", 10],
+  ["Consecutive Run-3", "Consecutive Run-4", 10],
+  ["Consecutive Run-4", "Consecutive Run-7", 10],
+  ["Consecutive Run-6", "Consecutive Run-7", 10],
+  ["Consecutive Run-5", "369-3", 10],
+  ["Consecutive Run-1", "Singles & Pairs-4", 10],
+  ["Winds & Dragons-1", "Winds & Dragons-6", 10],
+  ["Winds & Dragons-6", "Winds & Dragons-8", 10],
+  ["13579-3", "13579-6", 10],
+  ["13579-5", "13579-9", 10],
+  ["369-1", "Singles & Pairs-3", 10],
+];
+const americanWindFriendlyLines = new Set(["13579-3", "369-4", "2026-4"]);
+const americanPivotPartners = buildAmericanPivotPartners();
+const americanPivotCentrality = buildAmericanPivotCentrality();
+
+function americanLineKey(name) {
+  return String(name || "")
+    .replace("Winds & Dragons", "Winds Dragons")
+    .replace("Any Like Number-", "Any Like Numbers-");
+}
+
+function americanPatternLineKey(pattern) {
+  return americanLineKey(pattern.lineName || pattern.name || pattern.category);
+}
+
+function buildAmericanPivotPartners() {
+  const map = new Map();
+  const add = (from, to, overlap) => {
+    const key = americanLineKey(from);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({ line: americanLineKey(to), overlap });
+  };
+  for (const [a, b, overlap] of americanPivotPairs) {
+    add(a, b, overlap);
+    add(b, a, overlap);
+  }
+  return map;
+}
+
+function buildAmericanPivotCentrality() {
+  const map = new Map();
+  for (const [a, b, overlap] of americanPivotPairs) {
+    const weight = overlap - 9;
+    for (const line of [americanLineKey(a), americanLineKey(b)]) {
+      map.set(line, (map.get(line) || 0) + weight);
+    }
+  }
+  return map;
+}
 
 function americanPatternList() {
   const n = (color, rank, count) => ({ kind: "number", color, rank, count });
@@ -4816,13 +4895,23 @@ function americanPatternList() {
     A("Singles & Pairs", "FF 2026 2026 2026", 75, "concealed", [f(2), year("a", "a"), year("b", "b"), year("c", "c")]),
   ];
 
-  return specs.map(makeAmericanPattern);
+  const sectionCounts = new Map();
+  return specs.map((spec, index) => {
+    const line = (sectionCounts.get(spec.section) || 0) + 1;
+    sectionCounts.set(spec.section, line);
+    return makeAmericanPattern({
+      ...spec,
+      line,
+      lineName: `${spec.section}-${line}`,
+    }, index);
+  });
 }
 
 function makeAmericanPattern(spec, index) {
+  const lineName = spec.lineName || spec.section;
   const pattern = makeTargetPattern({
     id: `american-${index + 1}`,
-    name: `${spec.section}: ${spec.display}`,
+    name: lineName,
     category: spec.section,
     winning: spec.points,
     fishing: null,
@@ -4832,8 +4921,18 @@ function makeAmericanPattern(spec, index) {
   return Object.assign(pattern, {
     game: "american",
     exposure: spec.exposure,
+    line: spec.line,
+    lineName,
     display: spec.display,
     displayHTML: americanDisplayHTML(spec.groups),
+    getOrderingTargets: (() => {
+      const cache = new Map();
+      return (context) => {
+        const cacheKey = context?.seatWind || "we";
+        if (!cache.has(cacheKey)) cache.set(cacheKey, generateAmericanOrderingTargets(spec));
+        return cache.get(cacheKey);
+      };
+    })(),
   });
 }
 
@@ -4891,6 +4990,42 @@ function generateAmericanTargets(spec) {
   return targets;
 }
 
+function generateAmericanOrderingTargets(spec) {
+  const targets = [];
+
+  for (const vars of spec.rankOptions || [{}]) {
+    for (const colorMap of americanColorMaps(spec.groups)) {
+      const optionLists = spec.groups.map((groupDef) => americanOrderingGroupOptions(groupDef, colorMap, vars));
+      if (optionLists.some((groupOptions) => groupOptions.length === 0)) continue;
+
+      const acc = zeros();
+      const groups = [];
+
+      function walk(position) {
+        if (position === optionLists.length) {
+          if (totalInVec(acc) === HAND_SIZE + 1) {
+            targets.push({ target: copyVec(acc), groups: groups.map((group) => [...group]) });
+          }
+          return;
+        }
+
+        for (const option of optionLists[position]) {
+          if (addVec(acc, option.vec)) {
+            groups.push(option.group);
+            walk(position + 1);
+            groups.pop();
+            removeVec(acc, option.vec);
+          }
+        }
+      }
+
+      walk(0);
+    }
+  }
+
+  return targets;
+}
+
 function americanColorMaps(groups) {
   const colors = Array.from(americanColorsInGroups(groups));
   if (!colors.length) return [{}];
@@ -4935,6 +5070,33 @@ function americanGroupOptions(groupDef, colorMap, vars) {
 
   const id = americanItemId(groupDef, colorMap, vars);
   return americanRepeatOptions(id, groupDef.count);
+}
+
+function americanOrderingGroupOptions(groupDef, colorMap, vars) {
+  if (groupDef.kind === "singles") {
+    const groupIds = groupDef.items.map((item) => americanItemId(item, colorMap, vars));
+    const vec = group(groupIds);
+    return vec ? [{ vec, group: groupIds }] : [];
+  }
+
+  const id = americanItemId(groupDef, colorMap, vars);
+  return americanRepeatOptions(id, groupDef.count).map((vec) => ({
+    vec,
+    group: americanIdsForRepeatOption(vec, id),
+  }));
+}
+
+function americanIdsForRepeatOption(vec, preferredId) {
+  const ids = [];
+  const preferredIndex = idToIndex(preferredId);
+  for (let copy = 0; copy < (vec[preferredIndex] || 0); copy += 1) ids.push(preferredId);
+
+  for (let index = 0; index < TILE_COUNT; index += 1) {
+    if (index === preferredIndex) continue;
+    for (let copy = 0; copy < (vec[index] || 0); copy += 1) ids.push(tiles[index].id);
+  }
+
+  return ids;
 }
 
 function americanItemId(item, colorMap, vars) {
@@ -4988,6 +5150,109 @@ function activePatterns() {
   if (state.game.version === "singapore-malaysian") return singaporePatterns;
   if (state.game.version === "riichi") return riichiPatterns;
   return australianPatterns;
+}
+
+function attachAmericanTieScores(evaluated, counts, context) {
+  const americanResults = evaluated.filter((result) => result.pattern.game === "american");
+  if (!americanResults.length) return;
+
+  const byLine = new Map();
+  for (const result of americanResults) {
+    result.americanTieScore = americanBaseTieScore(result, counts, context);
+    byLine.set(americanPatternLineKey(result.pattern), result);
+  }
+
+  for (const result of americanResults) {
+    const missing = resultMissingCount(result);
+    if (!Number.isFinite(missing) || isBlockedResult(result)) continue;
+    const partners = americanPivotPartners.get(americanPatternLineKey(result.pattern)) || [];
+    for (const partner of partners) {
+      const partnerResult = byLine.get(partner.line);
+      if (!partnerResult || isBlockedResult(partnerResult)) continue;
+      const partnerMissing = resultMissingCount(partnerResult);
+      if (!Number.isFinite(partnerMissing) || partnerMissing > missing + 1) continue;
+      const sameDistanceBoost = partnerMissing === missing ? 1.25 : 1;
+      result.americanTieScore += (partner.overlap - 9) * 12 * sameDistanceBoost;
+    }
+  }
+}
+
+function americanBaseTieScore(result, counts, context) {
+  const line = americanPatternLineKey(result.pattern);
+  let score = (americanPivotCentrality.get(line) || 0) * 4;
+  const ordering = targetForResultOrdering(result);
+  const target = ordering?.target;
+
+  if (target) {
+    score += americanMatchedHoldScore(target, counts);
+    score += americanTargetShapeScore(target);
+    score += americanCloseTargetCount(result, counts, context) * 0.6;
+  }
+
+  score -= americanNeededPenalty(result, line);
+  return score;
+}
+
+function americanMatchedHoldScore(target, counts) {
+  let score = 0;
+  for (let index = 0; index < TILE_COUNT; index += 1) {
+    const matched = Math.min(counts[index], target[index]);
+    if (matched > 0) score += matched * americanHoldTileWeight(index);
+  }
+  return score;
+}
+
+function americanHoldTileWeight(index) {
+  const tile = tiles[index];
+  if (tile.id === americanFlowerId) return 5;
+  if (tile.type !== "suit") return 0.5;
+  if (tile.rank === 6) return 6;
+  if (tile.rank === 3) return 4;
+  if (tile.rank === 2) return 2.5;
+  if (tile.rank === 5 || tile.rank === 7 || tile.rank === 9) return 1.5;
+  return 0;
+}
+
+function americanTargetShapeScore(target) {
+  let score = 0;
+  if (targetHasRank(target, 2) && targetHasRank(target, 6)) score += 8;
+  if (targetHasRank(target, 3) && targetHasRank(target, 9)) score += 6;
+  if (targetHasRank(target, 5) && targetHasRank(target, 7)) score += 6;
+  return score;
+}
+
+function targetHasRank(target, rank) {
+  return suitOrder.some((suit) => target[idToIndex(`${suit}${rank}`)] > 0);
+}
+
+function americanCloseTargetCount(result, counts, context) {
+  const missing = resultMissingCount(result);
+  if (!Number.isFinite(missing) || typeof result.pattern.getOrderingTargets !== "function") return 0;
+  let count = 0;
+  for (const orderingTarget of result.pattern.getOrderingTargets(context)) {
+    const candidate = missingAgainstTarget(counts, orderingTarget.target, missing, context.liveCopies);
+    if (candidate && !candidate.blocked && candidate.missing === missing) count += 1;
+  }
+  return Math.min(count, 40);
+}
+
+function americanNeededPenalty(result, line) {
+  const needed = result.complete
+    ? []
+    : result.oneDraw.outs > 0
+      ? Array.from(result.oneDraw.waits.keys())
+      : result.distance.needed || [];
+  let penalty = 0;
+  for (const index of needed) {
+    const tile = tiles[index];
+    if (tile.type === "suit" && tile.rank === 1) penalty += 2.5;
+    if (tile.type === "wind" && !americanLineKeepsWinds(line)) penalty += 2;
+  }
+  return penalty;
+}
+
+function americanLineKeepsWinds(line) {
+  return line.startsWith("Winds Dragons-") || americanWindFriendlyLines.has(line);
 }
 
 function evaluateOneDraw(pattern, counts, known, context) {
@@ -5047,7 +5312,7 @@ function evaluatePatterns() {
   const context = { seatWind: state.seatWind, liveCopies, discardableCounts };
   if (total !== 14) return [];
 
-  return activePatterns()
+  const evaluated = activePatterns()
     .map((pattern) => {
       const complete = pattern.isWin(counts, context);
       const oneDraw = evaluateOneDraw(pattern, counts, known, context);
@@ -5058,14 +5323,19 @@ function evaluatePatterns() {
           : pattern.distance(counts, context);
       const status = complete ? "complete" : oneDraw.outs > 0 ? "fishing" : "longer";
       return { pattern, complete, oneDraw, distance, status };
-    })
-    .sort((a, b) => {
+    });
+
+  attachAmericanTieScores(evaluated, counts, context);
+
+  return evaluated.sort((a, b) => {
       if (a.complete !== b.complete) return a.complete ? -1 : 1;
       if (a.oneDraw.outs !== b.oneDraw.outs) return b.oneDraw.outs - a.oneDraw.outs;
       const aBlocked = a.distance.blocked && !a.complete && a.oneDraw.outs === 0;
       const bBlocked = b.distance.blocked && !b.complete && b.oneDraw.outs === 0;
       if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
       if (a.distance.missing !== b.distance.missing) return a.distance.missing - b.distance.missing;
+      const strategicDiff = (b.americanTieScore || 0) - (a.americanTieScore || 0);
+      if (strategicDiff) return strategicDiff;
       const scoreA = topWinningPointForPattern(a.pattern);
       const scoreB = topWinningPointForPattern(b.pattern);
       return scoreB - scoreA || a.pattern.name.localeCompare(b.pattern.name);
@@ -5127,6 +5397,13 @@ function suggestedDiscardIndexesForResult(result) {
   return Array.from(new Set(indexes)).filter((index) => discardableCounts[index] > 0);
 }
 
+function neededIndexesForResult(result) {
+  if (result.complete) return [];
+  return result.oneDraw.outs > 0
+    ? Array.from(result.oneDraw.waits.keys())
+    : result.distance.needed || [];
+}
+
 function displayedResultItems() {
   if (totalSelected() === HAND_SIZE + 1 && state.hand.length === HAND_SIZE && state.draw) {
     return visibleResults(evaluatePatterns());
@@ -5174,7 +5451,7 @@ function tileUnitSort(a, b) {
 }
 
 function targetForResultOrdering(result, primaryDiscardIndex = null) {
-  if (typeof result.pattern.getTargets !== "function") return null;
+  if (typeof result.pattern.getTargets !== "function" && typeof result.pattern.getOrderingTargets !== "function") return null;
   const context = {
     seatWind: state.seatWind,
     liveCopies: liveCopiesFromKnown(knownCounts()),
@@ -5182,8 +5459,12 @@ function targetForResultOrdering(result, primaryDiscardIndex = null) {
   };
   const counts = selectionCounts();
   let best = null;
+  const orderingTargets = typeof result.pattern.getOrderingTargets === "function"
+    ? result.pattern.getOrderingTargets(context)
+    : result.pattern.getTargets(context).map((target) => ({ target, groups: null }));
 
-  for (const target of result.pattern.getTargets(context)) {
+  for (const orderingTarget of orderingTargets) {
+    const target = orderingTarget.target;
     const candidate = missingAgainstTarget(counts, target, Infinity, context.liveCopies);
     if (!candidate) continue;
     const hasPrimaryDiscard = primaryDiscardIndex == null || candidate.discards.includes(primaryDiscardIndex);
@@ -5195,10 +5476,12 @@ function targetForResultOrdering(result, primaryDiscardIndex = null) {
       candidate.needed.length,
       candidate.discards.length,
     ];
-    if (!best || compareScores(score, best.score) < 0) best = { target, score };
+    if (!best || compareScores(score, best.score) < 0) {
+      best = { target, groups: orderingTarget.groups, score };
+    }
   }
 
-  return best?.target || null;
+  return best || null;
 }
 
 function compareScores(a, b) {
@@ -5285,8 +5568,8 @@ function orderUnitsByGroups(units, groups) {
 }
 
 function orderUnitsForResult(units, result, primaryDiscardIndex = null) {
-  const target = targetForResultOrdering(result, primaryDiscardIndex);
-  if (target) return orderUnitsByGroups(units, groupsForOrdering(target, result.pattern));
+  const ordering = targetForResultOrdering(result, primaryDiscardIndex);
+  if (ordering) return orderUnitsByGroups(units, ordering.groups || groupsForOrdering(ordering.target, result.pattern));
 
   const current = zeros();
   for (const unit of units) current[idToIndex(unit.id)] += 1;
@@ -5294,13 +5577,20 @@ function orderUnitsForResult(units, result, primaryDiscardIndex = null) {
 }
 
 function arrangeHandForResult(result) {
-  if (state.activePlayer !== "me" || totalSelected() !== HAND_SIZE + 1 || state.hand.length !== HAND_SIZE || !state.draw) return false;
+  const selectedTotal = totalSelected();
+  if (state.activePlayer !== "me" || selectedTotal < 1 || selectedTotal > HAND_SIZE + 1) return false;
 
-  const suggestedIndexes = suggestedDiscardIndexesForResult(result);
+  const suggestedIndexes = selectedTotal === HAND_SIZE + 1 ? suggestedDiscardIndexesForResult(result) : [];
   const units = selectedTileUnits();
-  const primaryDiscardIndex = suggestedIndexes.find((tileIndex) =>
-    units.some((unit) => !unit.locked && idToIndex(unit.id) === tileIndex),
-  );
+  const recommendedDiscardIndex = selectedTotal === HAND_SIZE + 1
+    ? discardRecommendationData(evaluatePatterns())?.index
+    : null;
+  const primaryDiscardIndex = suggestedIndexes.includes(recommendedDiscardIndex)
+    && units.some((unit) => !unit.locked && idToIndex(unit.id) === recommendedDiscardIndex)
+    ? recommendedDiscardIndex
+    : suggestedIndexes.find((tileIndex) =>
+      units.some((unit) => !unit.locked && idToIndex(unit.id) === tileIndex),
+    );
   const primaryDiscardUnit = Number.isFinite(primaryDiscardIndex)
     ? removeFirstUnit(units, (unit) => !unit.locked && idToIndex(unit.id) === primaryDiscardIndex, true)
     : null;
@@ -5316,8 +5606,11 @@ function arrangeHandForResult(result) {
   }
 
   const orderedMainUnits = orderUnitsForResult(units, result, primaryDiscardIndex);
+  const mainNonJokerUnits = orderedMainUnits.filter((unit) => unit.id !== jokerId);
+  const mainJokerUnits = orderedMainUnits.filter((unit) => unit.id === jokerId);
   const nextUnits = [
-    ...orderedMainUnits,
+    ...mainNonJokerUnits,
+    ...mainJokerUnits,
     ...extraDiscardUnits.sort(tileUnitSort),
     ...(primaryDiscardUnit ? [primaryDiscardUnit] : []),
     ...(reservedDrawUnit ? [reservedDrawUnit] : []),
@@ -5326,7 +5619,7 @@ function arrangeHandForResult(result) {
   pushHistory();
   applyTileUnitsToHand(nextUnits);
   state.drawSlotPurpose = primaryDiscardUnit ? "suggested-discard" : "last-pickup";
-  state.mode = "discard";
+  state.mode = primaryDiscardUnit ? "discard" : modeForMyTurnTileCount();
   normalizeModeForState();
   render();
   return true;
@@ -5336,41 +5629,60 @@ function recommendationFallback(text) {
   return `<span>${t("suggestedDiscard")}</span><strong>${text}</strong>`;
 }
 
-function discardRecommendationHTML(evaluated) {
+function discardRecommendationData(evaluated) {
   const visible = visibleResults(evaluated);
-  if (!visible.length) return recommendationFallback(t("noMatchingHandsShort"));
-  if (visible.some((result) => result.complete)) return recommendationFallback(t("noDiscardNeeded"));
+  if (!visible.length || visible.some((result) => result.complete)) return null;
 
   const counts = discardableSelectionCounts();
   const playable = visible
     .map((result) => ({
       result,
       missing: resultMissingCount(result),
-      suggested: suggestedDiscardIndexesForResult(result).filter((index) => counts[index] > 0),
+      suggested: Array.from(new Set(suggestedDiscardIndexesForResult(result).filter((index) => counts[index] > 0))),
+      needed: new Set(neededIndexesForResult(result)),
     }))
     .filter((item) => Number.isFinite(item.missing) && item.suggested.length > 0);
 
-  if (!playable.length) return recommendationFallback(t("noClearDiscard"));
+  if (!playable.length) return null;
 
   const minimumMissing = Math.min(...playable.map((item) => item.missing));
-  const closest = playable.filter((item) => item.missing === minimumMissing);
+  const focus = playable.filter((item) => item.missing <= minimumMissing + 1);
   const candidates = new Map();
 
-  for (const item of closest) {
+  for (const item of focus) {
     for (const index of item.suggested) {
       if (!candidates.has(index)) {
         candidates.set(index, {
           index,
           closestCount: 0,
+          focusCount: 0,
+          neededConflictCount: 0,
+          closestNeededConflictCount: 0,
           allCount: 0,
           weightedCount: 0,
           oneDrawOuts: 0,
           pointTotal: 0,
+          discardValue: discardPreferenceScore(index),
           latestPickup: state.draw && idToIndex(state.draw) === index ? 1 : 0,
         });
       }
-      const candidate = candidates.get(index);
-      candidate.closestCount += 1;
+    }
+  }
+
+  if (!candidates.size) return null;
+
+  for (const item of focus) {
+    const uniqueSuggested = new Set(item.suggested);
+    for (const candidate of candidates.values()) {
+      if (uniqueSuggested.has(candidate.index)) {
+        candidate.focusCount += 1;
+        candidate.weightedCount += 1 / Math.max(1, item.missing - minimumMissing + 1);
+        if (item.missing === minimumMissing) candidate.closestCount += 1;
+      }
+      if (item.needed.has(candidate.index)) {
+        candidate.neededConflictCount += 1;
+        if (item.missing === minimumMissing) candidate.closestNeededConflictCount += 1;
+      }
     }
   }
 
@@ -5380,21 +5692,46 @@ function discardRecommendationHTML(evaluated) {
       const candidate = candidates.get(index);
       if (!candidate) continue;
       candidate.allCount += 1;
-      candidate.weightedCount += 1 / Math.max(1, item.missing);
       candidate.oneDrawOuts += item.result.oneDraw.outs || 0;
       candidate.pointTotal += topWinningPointForPattern(item.result.pattern);
     }
   }
 
-  const best = Array.from(candidates.values()).sort((a, b) =>
+  return Array.from(candidates.values()).sort((a, b) =>
+    b.focusCount - a.focusCount ||
+    a.neededConflictCount - b.neededConflictCount ||
     b.closestCount - a.closestCount ||
+    a.closestNeededConflictCount - b.closestNeededConflictCount ||
     b.allCount - a.allCount ||
     b.weightedCount - a.weightedCount ||
     b.oneDrawOuts - a.oneDrawOuts ||
     b.pointTotal - a.pointTotal ||
+    b.discardValue - a.discardValue ||
     b.latestPickup - a.latestPickup ||
     tiles[a.index].short.localeCompare(tiles[b.index].short),
   )[0];
+}
+
+function discardPreferenceScore(index) {
+  const tile = tiles[index];
+  if (state.game.version === "american") {
+    if (tile.id === jokerId) return -10;
+    if (tile.type === "suit" && tile.rank === 1) return 4;
+    if (tile.type === "wind") return 2;
+    if (tile.type === "dragon" && tile.id === "dg") return 1.5;
+    if (tile.type === "suit" && [6, 3].includes(tile.rank)) return -3;
+    if (tile.id === americanFlowerId) return -4;
+  }
+  return 0;
+}
+
+function discardRecommendationHTML(evaluated) {
+  const visible = visibleResults(evaluated);
+  if (!visible.length) return recommendationFallback(t("noMatchingHandsShort"));
+  if (visible.some((result) => result.complete)) return recommendationFallback(t("noDiscardNeeded"));
+
+  const best = discardRecommendationData(evaluated);
+  if (!best) return recommendationFallback(t("noClearDiscard"));
 
   return `
     <span>${t("suggestedDiscard")}</span>
@@ -5440,7 +5777,7 @@ function resultCardHTML(result, resultIndex) {
   const { pattern, oneDraw, distance, status } = result;
   const liveCopies = liveCopiesFromKnown(knownCounts());
   const isAmerican = pattern.game === "american";
-  const resultTitle = isAmerican ? pattern.category : patternDisplayName(pattern);
+  const resultTitle = isAmerican ? (pattern.lineName || pattern.name || pattern.category) : patternDisplayName(pattern);
   const patternLine = isAmerican
     ? `<div class="american-card-pattern" aria-label="${pattern.display}">${pattern.displayHTML}</div>`
     : "";
@@ -5489,6 +5826,7 @@ function resultCardHTML(result, resultIndex) {
 }
 
 function render() {
+  normalizeModeForState();
   renderLanguage();
   renderSlots();
   renderMode();
@@ -5661,7 +5999,7 @@ dom.expose.addEventListener("click", () => {
 });
 
 dom.kong.addEventListener("click", () => {
-  if (state.activePlayer !== "me") return;
+  if (state.activePlayer !== "me" || state.game.version === "american") return;
   state.kongMode = !state.kongMode;
   if (state.kongMode) state.exposeMode = false;
   render();
